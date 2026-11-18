@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marble Run Lab</title>
+  <meta name="description" content="Build a marble run from bases and simple machines, then test and time it with a simulated marble.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <h1>Marble Run Lab</h1>
+    </div>
+
+    <div class="group run-controls">
+      <button id="btnTest" class="primary" title="Release the marble (Space)">▶ Test Run</button>
+      <button id="btnPause" title="Pause / resume" disabled>❚❚ Pause</button>
+      <label class="field">Speed
+        <select id="selSpeed" title="Slow motion does not change the measured time">
+          <option value="0.25">¼×</option>
+          <option value="0.5">½×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+        </select>
+      </label>
+      <label class="field">Marble
+        <select id="selMarble">
+          <option value="glass" selected>Glass</option>
+          <option value="steel">Steel (heavy)</option>
+          <option value="rubber">Rubber (bouncy)</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="chkTrail" checked> Trail</label>
+    </div>
+
+    <div class="timer" aria-live="polite">
+      <span class="timer-label" id="timerLabel">Timer</span>
+      <span class="timer-value" id="timerValue">0:00.00</span>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="group">
+      <button id="btnUndo" title="Undo (Ctrl+Z)">↶ Undo</button>
+      <button id="btnRedo" title="Redo (Ctrl+Y)">↷ Redo</button>
+      <label class="check" title="Snap to grid, connect pieces end-to-end, and rest pieces on bases"><input type="checkbox" id="chkSnap" checked> Snap &amp; connect</label>
+    </div>
+    <div class="group">
+      <button id="btnSave" title="Save this design in this browser">💾 Save</button>
+      <select id="selLoad" title="Load a design"></select>
+      <button id="btnExport" title="Download this design as a file to turn in or share">⬇ Export</button>
+      <button id="btnImport" title="Open a design file">⬆ Import</button>
+      <input type="file" id="fileImport" accept=".json,application/json" hidden>
+      <button id="btnClear" class="danger" title="Remove every piece">Clear</button>
+    </div>
+  </div>
+
+  <main class="layout">
+    <aside class="palette" id="palette" aria-label="Pieces"></aside>
+
+    <section class="stage-wrap">
+      <div class="stage" id="stage">
+        <canvas id="board" aria-label="Marble run build area"></canvas>
+        <div class="warn" id="warn" hidden></div>
+        <div class="result" id="result" hidden>
+          <div class="result-card">
+            <div class="result-icon" id="resultIcon"></div>
+            <div class="result-title" id="resultTitle"></div>
+            <div class="result-time" id="resultTime"></div>
+            <div class="result-msg" id="resultMsg"></div>
+            <div class="result-actions">
+              <button id="btnAgain" class="primary">▶ Run again</button>
+              <button id="btnEdit">✎ Back to building</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="hint" id="hint">Drag pieces from the left onto the board. Click a piece to change its size and angle. Line up the blue dots to connect pieces.</p>
+    </section>
+
+    <aside class="side">
+      <section class="panel" id="inspector" aria-label="Selected piece"></section>
+      <section class="panel">
+        <h2>Run Log</h2>
+        <ol class="runlog" id="runlog"><li class="empty">No test runs yet.</li></ol>
+      </section>
+      <details class="panel help">
+        <summary>Keyboard shortcuts</summary>
+        <dl>
+          <dt>Space</dt><dd>Test run / stop</dd>
+          <dt>Q / E</dt><dd>Rotate 15°</dd>
+          <dt>Arrows</dt><dd>Nudge (Shift = 10)</dd>
+          <dt>Ctrl+D</dt><dd>Duplicate</dd>
+          <dt>Ctrl+C / V</dt><dd>Copy / paste</dd>
+          <dt>Delete</dt><dd>Remove piece</dd>
+          <dt>Ctrl+Z / Y</dt><dd>Undo / redo</dd>
+        </dl>
+      </details>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="lib/matter.min.js"></script>
+  <script src="js/pieces.js"></script>
+  <script src="js/sim.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
