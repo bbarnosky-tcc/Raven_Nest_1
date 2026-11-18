@@ -391,6 +391,7 @@
 
   /* ---------------------------------------------------------- keyboard */
   function onKey(e) {
+    if (dialogOpen) return;
     const tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' && e.target.type !== 'range' && e.target.type !== 'checkbox') return;
     if (tag === 'SELECT' || tag === 'TEXTAREA') return;
@@ -426,6 +427,77 @@
     }
   }
 
+  /* ------------------------------------------------- in-page dialog
+     (browser prompt()/confirm() pop-ups are blocked in some embeds) */
+  let dialogOpen = false;
+  function ask(opts) {
+    return new Promise((resolve) => {
+      dialogOpen = true;
+      const back = el('div', { class: 'modal-back' });
+      const card = el('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modalTitle' });
+      card.append(el('h2', { id: 'modalTitle', text: opts.title }));
+      if (opts.text) card.append(el('p', { class: 'modal-text', text: opts.text }));
+      let field = null, textarea = null;
+      if (opts.input) {
+        field = el('input', { type: 'text', id: 'modalInput', 'aria-label': opts.input.label || opts.title });
+        field.value = opts.input.value || '';
+        card.append(field);
+      }
+      if (opts.select) {
+        field = el('select', { id: 'modalSelect', 'aria-label': opts.select.label || opts.title });
+        opts.select.options.forEach((o) => field.append(el('option', { value: o, text: o })));
+        card.append(field);
+      }
+      if (opts.textarea) {
+        textarea = el('textarea', { id: 'modalText', rows: '5', spellcheck: 'false', 'aria-label': opts.textarea.label || opts.title });
+        textarea.value = opts.textarea.value || '';
+        if (opts.textarea.placeholder) textarea.placeholder = opts.textarea.placeholder;
+        if (opts.textarea.readonly) textarea.readOnly = true;
+        card.append(textarea);
+        field = field || textarea;
+      }
+      const ctx = { textarea };
+      const close = (button) => {
+        back.remove();
+        dialogOpen = false;
+        document.removeEventListener('keydown', onKeyDlg, true);
+        resolve({ button, value: field ? field.value : '' });
+      };
+      const row = el('div', { class: 'modal-actions' });
+      let primary = null;
+      for (const b of opts.buttons) {
+        const btn = el('button', { type: 'button', class: b.primary ? 'primary' : b.danger ? 'danger' : '', text: b.label });
+        btn.addEventListener('click', () => { if (b.onClick) b.onClick(ctx); if (!b.keepOpen) close(b.value); });
+        if (b.primary || b.danger) primary = b;
+        row.append(btn);
+      }
+      card.append(row);
+      back.append(card);
+      back.addEventListener('pointerdown', (e) => { if (e.target === back) close('cancel'); });
+      function onKeyDlg(e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close('cancel'); }
+        else if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT' && primary) { e.preventDefault(); close(primary.value); }
+      }
+      document.addEventListener('keydown', onKeyDlg, true);
+      document.body.append(back);
+      setTimeout(() => {
+        if (field && !(textarea && textarea.readOnly)) { field.focus(); if (field.select) field.select(); }
+        else if (textarea) { textarea.focus(); textarea.select(); }
+        else row.lastChild.focus();
+      }, 0);
+    });
+  }
+
+  function copyText(text, textarea) {
+    const fallback = () => {
+      if (textarea) { textarea.focus(); textarea.select(); }
+      toast('Press Ctrl+C (or ⌘C) to copy the selected code.');
+    };
+    try {
+      navigator.clipboard.writeText(text).then(() => toast('Design code copied.'), fallback);
+    } catch (e) { fallback(); }
+  }
+
   /* ------------------------------------------------------------- init */
   function init() {
     buildPalette();
@@ -451,37 +523,71 @@
     ui.chkSnap.addEventListener('change', () => { E.snap = ui.chkSnap.checked; });
     $('btnUndo').addEventListener('click', () => E.mode === 'build' && E.undo());
     $('btnRedo').addEventListener('click', () => E.mode === 'build' && E.redo());
-    $('btnClear').addEventListener('click', () => {
-      if (!E.pieces.length) return;
-      if (confirm('Remove every piece from the board? (You can Undo.)')) loadPieces([], null);
+    $('btnClear').addEventListener('click', async () => {
+      if (!E.pieces.length || E.mode !== 'build') return;
+      const r = await ask({ title: 'Clear the board?', text: 'This removes every piece. You can still Undo afterwards.',
+        buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Clear board', value: 'ok', danger: true }] });
+      if (r.button === 'ok') loadPieces([], null);
     });
-    $('btnSave').addEventListener('click', () => {
-      const name = (prompt('Name this marble run:', 'My marble run') || '').trim();
+    $('btnSave').addEventListener('click', async () => {
+      const r = await ask({ title: 'Save this marble run', text: 'Saved runs stay in this browser on this device.',
+        input: { value: 'My marble run', label: 'Name' },
+        buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Save', value: 'ok', primary: true }] });
+      const name = (r.button === 'ok' && r.value || '').trim();
       if (!name) return;
-      if (MR.storage.slots()[name] && !confirm('Replace the saved run called "' + name + '"?')) return;
-      if (MR.storage.save(name, E.pieces)) { toast('Saved "' + name + '" in this browser.'); refreshLoadList(); }
-      else toast('Could not save here. Use Export to download a file instead.');
+      if (MR.storage.slots()[name]) {
+        const c = await ask({ title: 'Replace "' + name + '"?', text: 'A saved run already has this name.',
+          buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Replace', value: 'ok', primary: true }] });
+        if (c.button !== 'ok') return;
+      }
+      if (MR.storage.save(name, E.pieces)) { toast('Saved "' + name + '".'); refreshLoadList(); }
+      else toast('This browser blocked saving. Use Export to copy your design code instead.');
     });
-    ui.selLoad.addEventListener('change', () => {
+    ui.selLoad.addEventListener('change', async () => {
       const v = ui.selLoad.value;
       ui.selLoad.value = '';
       if (!v) return;
       if (v === SAMPLE) loadPieces(MR.sampleLayout(), 'the sample run');
       else if (v === BLANK) loadPieces([], null);
       else if (v === DELETE) {
-        const name = (prompt('Type the name of the saved run to delete:\n' + Object.keys(MR.storage.slots()).join('\n')) || '').trim();
-        if (name && MR.storage.slots()[name]) { MR.storage.remove(name); toast('Deleted "' + name + '".'); refreshLoadList(); }
+        const names = Object.keys(MR.storage.slots()).sort();
+        const r = await ask({ title: 'Delete a saved run', select: { options: names, label: 'Saved run' },
+          buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Delete', value: 'ok', danger: true }] });
+        if (r.button === 'ok' && r.value) { MR.storage.remove(r.value); toast('Deleted "' + r.value + '".'); refreshLoadList(); }
       } else if (v.startsWith('slot:')) {
         const name = v.slice(5);
         try { loadPieces(MR.storage.load(name), '"' + name + '"'); } catch (err) { toast(err.message); }
       }
     });
     $('btnExport').addEventListener('click', () => {
-      const name = prompt('File name for your design:', 'my-marble-run');
-      if (name === null) return;
-      MR.storage.exportFile(E.pieces, name || 'my-marble-run');
+      const code = JSON.stringify(MR.toFile(E.pieces));
+      ask({
+        title: 'Export your design',
+        text: 'Copy this design code and paste it into your assignment or send it to a classmate. They can load it with Import. You can also try downloading it as a file.',
+        textarea: { value: code, readonly: true, label: 'Design code' },
+        buttons: [
+          { label: 'Download file', value: 'dl', keepOpen: true, onClick: () => MR.storage.exportFile(E.pieces, 'my-marble-run') },
+          { label: 'Copy code', value: 'copy', primary: true, keepOpen: true, onClick: (d) => copyText(code, d.textarea) },
+          { label: 'Done', value: 'done' },
+        ],
+      });
     });
-    $('btnImport').addEventListener('click', () => $('fileImport').click());
+    $('btnImport').addEventListener('click', async () => {
+      const r = await ask({
+        title: 'Import a design',
+        text: 'Paste design code that someone exported, or choose a saved .json file.',
+        textarea: { value: '', placeholder: 'Paste design code here…', label: 'Design code' },
+        buttons: [
+          { label: 'Choose file…', value: 'file' },
+          { label: 'Cancel', value: 'cancel' },
+          { label: 'Load design', value: 'ok', primary: true },
+        ],
+      });
+      if (r.button === 'file') { $('fileImport').click(); return; }
+      if (r.button !== 'ok' || !r.value.trim()) return;
+      try { loadPieces(MR.fromFile(JSON.parse(r.value)), 'the pasted design'); }
+      catch (err) { toast('That code could not be read. Make sure you pasted all of it.'); }
+    });
     $('fileImport').addEventListener('change', (e) => {
       const f = e.target.files[0];
       e.target.value = '';
@@ -492,7 +598,7 @@
     try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', E.redraw); } catch (e) { /* old browsers */ }
 
     // hooks for automated tests
-    MR.app = { startTest, stopTest, runs, editor: E, loadPieces };
+    MR.app = { startTest, stopTest, runs, editor: E, loadPieces, ask };
   }
 
   init();
